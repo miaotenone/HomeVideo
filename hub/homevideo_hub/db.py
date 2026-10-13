@@ -106,7 +106,7 @@ _SCHEMA_STATEMENTS: tuple[str, ...] = (
 def connect(db_path: Path) -> sqlite3.Connection:
     """Open a SQLite connection with the hub's required pragmas."""
 
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")

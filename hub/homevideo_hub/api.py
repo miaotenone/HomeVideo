@@ -1,9 +1,14 @@
 from __future__ import annotations
 
-from fastapi import FastAPI
+import time
+
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 from .config import Settings, load_settings
 from .db import connect, init_db
+from .events import upsert_event
+from .models import EventCreate
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -32,4 +37,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="HomeVideo Hub")
     app.state.settings = settings
     app.state.conn = conn
+
+    @app.post("/api/v1/events")
+    def create_event(payload: EventCreate, request: Request) -> JSONResponse:
+        event_id, created = upsert_event(
+            request.app.state.conn, payload, time.time()
+        )
+        return JSONResponse(
+            status_code=201 if created else 200,
+            content={"event_id": event_id, "created": created},
+        )
+
     return app
