@@ -532,8 +532,8 @@ git commit -m "feat(hub): streaming segment upload with checksum and capacity gu
 **Interfaces:**
 - Consumes: `events.upsert_event`、`events.store_segment`、`models.EventClose`
 - Produces:
-  - `events.close_event(conn, event_id: str, payload: EventClose, now: float) -> None`，设置 `status='closed'`、`closed_at`
-  - `events.get_event(conn, event_id: str) -> dict | None`，字段均为可 JSON 序列化的原生类型；`snapshot` 为 `dict | None`，`segments` 为按 `seq` 升序的 `list[dict]`（不要把 `sqlite3.Row` 直接交给响应层）
+  - `events.close_event(conn, event_id: str, payload: EventClose, now: float) -> None`，设置 `status='closed'` 与 `closed_at`，并持久化结束信息：`events` 表需增加 `ended_at REAL` 与 `duration_ms INTEGER` 两列（本任务可在 `db.py` 的建表语句中补上）。`ended_at` 仅在 `payload.time_trusted` 为真时写入，否则为 `NULL`；`duration_ms` 始终写入，它是设备时间不可信时还原事件时长的唯一依据
+  - `events.get_event(conn, event_id: str) -> dict | None`，字段均为可 JSON 序列化的原生类型，且必须包含 `ended_at` 与 `duration_ms`；`snapshot` 为 `dict | None`，`segments` 为按 `seq` 升序的 `list[dict]`（不要把 `sqlite3.Row` 直接交给响应层）。`list_events` 返回的每项同样包含这两个字段
   - `events.list_events(conn, *, event_type=None, status=None, limit=50, offset=0) -> list[dict]`，按 `received_at DESC` 排序
   - 路由 `POST /api/v1/events/{event_id}/close`、`GET /api/v1/events`、`GET /api/v1/events/{event_id}`
 
@@ -609,6 +609,8 @@ Expected: FAIL，查询路由 `404`
 - [ ] **Step 3: 实现关闭、详情与列表**
 
 `list_events` 返回 `{"items": [...], "limit": ..., "offset": ...}`。事件在未关闭时为 `status='active'`。时间不可信的事件同样按 `received_at` 排序，`started_at` 为 `None`。
+
+关闭流程必须保留设备给出的结束信息：在 `events` 表增加 `ended_at REAL` 与 `duration_ms INTEGER`，`close_event` 在 `payload.time_trusted` 为真时写入 `ended_at`，并始终写入 `duration_ms`。时间不可信的事件 `started_at` 与 `ended_at` 都为 `NULL`，此时 `duration_ms` 是唯一的时长来源（对应方案“用启动标识、单调时钟及事件时长保存记录”）。详情与列表都要返回这两个字段。
 
 - [ ] **Step 4: 运行测试确认通过**
 
