@@ -7,7 +7,7 @@ import uuid
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from . import arm, health, notify, storage
+from . import arm, health, notify, retention, storage
 from .config import Settings, load_settings
 from .db import connect, init_db
 from .events import (
@@ -271,5 +271,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 status_code=404, content={"detail": "event not found"}
             )
         return JSONResponse(content=event)
+
+    @app.post("/api/v1/maintenance/cleanup")
+    def maintenance_cleanup(request: Request) -> JSONResponse:
+        result = retention.run_cleanup(
+            request.app.state.conn, request.app.state.settings, time.time()
+        )
+        return JSONResponse(content=result)
 
     return app
