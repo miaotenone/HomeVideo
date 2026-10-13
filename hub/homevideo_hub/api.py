@@ -6,7 +6,7 @@ import uuid
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from . import health, storage
+from . import arm, health, storage
 from .config import Settings, load_settings
 from .db import connect, init_db
 from .events import (
@@ -18,7 +18,7 @@ from .events import (
     store_snapshot,
     upsert_event,
 )
-from .models import DeviceReport, EventClose, EventCreate
+from .models import ArmAck, ArmRequest, DeviceReport, EventClose, EventCreate
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -78,6 +78,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             stale_s=settings.detection_stale_seconds,
         )
         return JSONResponse(content={"devices": devices})
+
+    @app.get("/api/v1/arm")
+    def get_arm(request: Request) -> JSONResponse:
+        mode, config_version = arm.get_desired(request.app.state.conn)
+        return JSONResponse(
+            content={"mode": mode, "config_version": config_version}
+        )
+
+    @app.put("/api/v1/arm")
+    def set_arm(payload: ArmRequest, request: Request) -> JSONResponse:
+        mode, config_version = arm.set_desired(
+            request.app.state.conn, payload.mode, time.time()
+        )
+        return JSONResponse(
+            content={"mode": mode, "config_version": config_version}
+        )
+
+    @app.post("/api/v1/arm/ack")
+    def arm_ack(payload: ArmAck, request: Request) -> JSONResponse:
+        effective = arm.record_ack(
+            request.app.state.conn, payload, time.time()
+        )
+        return JSONResponse(
+            status_code=200, content={"status": "ok", "effective": effective}
+        )
+
+    @app.get("/api/v1/arm/status")
+    def arm_status(request: Request) -> JSONResponse:
+        return JSONResponse(content=arm.arm_status(request.app.state.conn))
 
     @app.post("/api/v1/events")
     def create_event(payload: EventCreate, request: Request) -> JSONResponse:
