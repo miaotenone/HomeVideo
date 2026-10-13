@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from . import arm, health, storage
+from . import arm, health, notify, storage
 from .config import Settings, load_settings
 from .db import connect, init_db
 from .events import (
@@ -19,6 +20,8 @@ from .events import (
     upsert_event,
 )
 from .models import ArmAck, ArmRequest, DeviceReport, EventClose, EventCreate
+
+logger = logging.getLogger(__name__)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -47,6 +50,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="HomeVideo Hub")
     app.state.settings = settings
     app.state.conn = conn
+    app.state.notifier = notify.get_notifier(settings)
 
     @app.post("/api/v1/device/heartbeat")
     def device_heartbeat(payload: DeviceReport, request: Request) -> JSONResponse:
@@ -113,6 +117,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         event_id, created = upsert_event(
             request.app.state.conn, payload, time.time()
         )
+        if created:
+            try:
+                request.app.state.notifier.notify(
+                    notify.build_notification(payload)
+                )
+            except Exception:
+                logger.exception("notification failed for event %s", event_id)
         return JSONResponse(
             status_code=201 if created else 200,
             content={"event_id": event_id, "created": created},
