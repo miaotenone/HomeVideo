@@ -639,7 +639,7 @@ git commit -m "feat(hub): event close and query API"
   - `health.record_report(conn, report: DeviceReport, now: float) -> None`（写 `devices` 表）
   - `health.device_health(conn, device_id: str, now: float, *, timeout_s: int, stale_s: int) -> dict`
   - `health.overview(conn, now: float, *, timeout_s: int, stale_s: int) -> list[dict]`
-  - 健康字典字段：`device_id`、`link`（`online|offline|unknown`）、`video`、`detection`（`person|fire|smoke` 各自 `ok|stale|failed|unknown`）、`recording`、`last_seen_at`
+  - 健康字典字段：`device_id`、`link`（`online|offline|unknown`）、`video`（`ok|failed|unknown`）、`detection`（`person|fire|smoke` 各自 `ok|stale|unknown`）、`recording`（`ok|failed|unknown`）、`last_seen_at`。检测的“失效”以 `stale` 表达（检测任务停摆即最近一次完成时间超出陈旧阈值）；`failed` 只用于设备显式上报的硬件/录像故障，检测项不产生 `failed`
   - 路由 `POST /api/v1/device/heartbeat`、`GET /api/v1/devices/{device_id}/health`、`GET /api/v1/health`
 
 - [ ] **Step 1: 写失败测试**
@@ -732,7 +732,7 @@ Expected: FAIL，导入错误或健康路由 `404`
 
 - [ ] **Step 3: 实现 `health.py` 与相关路由**
 
-陈旧判断用报告自身的 `uptime_ms` 差值（`uptime_ms - *_last_detection_ms`），不依赖集线器时钟，避免设备与集线器时间不一致造成误判。链接状态用 `now - last_seen_at`。未上报的检测项为 `unknown`。路由按 `Settings` 传入阈值。
+陈旧判断用报告自身的 `uptime_ms` 差值（`uptime_ms - *_last_detection_ms`），不依赖集线器时钟，避免设备与集线器时间不一致造成误判。链接状态用 `now - last_seen_at`。未上报的检测项为 `unknown`。方案要求集线器区分“设备失联”“视频故障”“检测失效”“录像失败”，这一区分由 `link`／`video`／`detection`／`recording` 四个独立字段承担；检测内部只需 `ok`、`stale`、`unknown`，不再引入不可达的 `failed`。路由按 `Settings` 传入阈值。
 
 - [ ] **Step 4: 运行测试确认通过**
 
