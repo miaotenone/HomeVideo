@@ -385,7 +385,7 @@ Expected: FAIL，`404`（路由不存在）
 
 - [ ] **Step 3: 实现 `storage.py`、`events.store_snapshot` 与快照路由**
 
-先校验事件存在，再写入临时文件并原子替换，最后写 `snapshots` 行；重复到达时若 `snapshots.event_id` 已存在且校验值一致，返回 `"duplicate"` 并删除临时文件。路由用 `request.stream()` 读取请求体，不在内存中拼装完整图片。
+先校验事件存在，再写入临时文件并原子替换，最后写 `snapshots` 行；重复到达时若 `snapshots.event_id` 已存在且校验值一致，返回 `"duplicate"` 并删除临时文件。截图文件名固定为 `f"{event_id}{ext}"`，`ext` 由 `Content-Type` 推导（`image/png`→`.png`，`image/jpeg`→`.jpg`，其余→`.bin`）。路由用 `request.stream()` 读取请求体，不在内存中拼装完整图片。
 
 - [ ] **Step 4: 运行测试确认通过**
 
@@ -506,7 +506,7 @@ Expected: FAIL，`404`（路由不存在）
 
 - [ ] **Step 3: 实现容量检查、`events.store_segment` 与片段路由**
 
-`ensure_capacity` 用 `max_event_bytes` 与 `free_bytes - metadata_reserve_bytes` 共同判断；测试通过把 `max_event_bytes` 设小来触发，无需伪造磁盘。写入使用临时文件加原子替换；校验值由流式计算得到，与 `X-Segment-Sha256` 比对。序号冲突且校验值不同返回 409。所有失败路径删除临时文件。
+`ensure_capacity` 只检查磁盘剩余空间（`free_bytes(path) - reserve_bytes`）。单事件字节上限 `max_event_bytes` 在 `events.store_segment` 中按该事件已有片段与截图字节之和加本次所需判断，超出时抛 `InsufficientStorage`；测试通过把 `max_event_bytes` 设小来触发，无需伪造磁盘。片段文件名固定为 `f"{event_id}_{seq}.bin"`，写入临时文件后原子替换。校验值由流式计算得到，与 `X-Segment-Sha256` 比对。序号冲突且校验值不同返回 409。所有失败路径删除临时文件。
 
 - [ ] **Step 4: 运行测试确认通过**
 
@@ -874,6 +874,7 @@ import uuid
 from fastapi.testclient import TestClient
 
 from homevideo_hub.api import create_app
+from homevideo_hub.config import load_settings
 
 
 def _body(eid=None):
@@ -902,9 +903,7 @@ def test_duplicate_event_does_not_notify_again(client, settings):
 
 
 def test_notifier_failure_does_not_fail_ingest(tmp_path):
-    settings = dataclasses.replace(
-        __import__("homevideo_hub.config", fromlist=["load_settings"]).load_settings(
-            data_dir=tmp_path), notifier="boom")
+    settings = dataclasses.replace(load_settings(data_dir=tmp_path), notifier="boom")
     with TestClient(create_app(settings)) as client:
         body = _body()
         r = client.post("/api/v1/events", json=body)
@@ -956,24 +955,20 @@ git commit -m "feat(hub): pluggable notifier with file channel"
 ```python
 from __future__ import annotations
 
-import dataclasses
 import hashlib
+import time
 import uuid
 
-from fastapi.testclient import TestClient
-
-from homevideo_hub.api import create_app
 from homevideo_hub.retention import run_cleanup
 
 DAY = 86_400.0
-NOW = 1_700_000_000.0
 
 
-def _make_event(client, *, received_ms_ago):
+def _make_event(client):
     eid = str(uuid.uuid4())
     client.post("/api/v1/events", json={
         "event_id": eid, "device_id": "v831-1", "event_type": "person_intrusion",
-        "started_at": NOW - received_ms_ago / 1000, "time_trusted": False,
+        "started_at": None, "time_trusted": False,
         "model_version": "m1", "config_version": 1, "arm_mode": "away",
         "detections": [{"label": "person_intrusion", "confidence": 0.9}]})
     data = b"payload" * 8
@@ -991,11 +986,10 @@ def _age(conn, event_id, seconds):
 
 
 def test_closed_event_older_than_retention_is_deleted(client, settings):
-    eid = _make_event(client, received_ms_ago=0)
-    app = client.app
-    conn = app.state.conn
+    eid = _make_event(client)
+    conn = client.app.state.conn
     _age(conn, eid, 8 * DAY)
-    result = run_cleanup(conn, settings, NOW)
+    result = run_cleanup(conn, settings, time.time())
     assert result["deleted_events"] == 1
     assert result["bytes_freed"] > 0
     assert client.get(f"/api/v1/events/{eid}").status_code == 404
@@ -1003,8 +997,8 @@ def test_closed_event_older_than_retention_is_deleted(client, settings):
 
 
 def test_recent_event_is_kept(client, settings):
-    eid = _make_event(client, received_ms_ago=0)
-    assert run_cleanup(client.app.state.conn, settings, NOW)["deleted_events"] == 0
+    eid = _make_event(client)
+    assert run_cleanup(client.app.state.conn, settings, time.time())["deleted_events"] == 0
     assert client.get(f"/api/v1/events/{eid}").status_code == 200
 
 
@@ -1017,7 +1011,7 @@ def test_active_event_is_never_deleted(client, settings):
         "detections": [{"label": "person_intrusion", "confidence": 0.9}]})
     conn = client.app.state.conn
     _age(conn, eid, 30 * DAY)
-    assert run_cleanup(conn, settings, NOW)["deleted_events"] == 0
+    assert run_cleanup(conn, settings, time.time())["deleted_events"] == 0
 
 
 def test_cleanup_endpoint_returns_counts(client):
