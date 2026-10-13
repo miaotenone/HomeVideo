@@ -1,8 +1,25 @@
 from __future__ import annotations
 
 import sqlite3
+from typing import Literal
 
 from .models import DeviceReport
+
+# The four design categories (设备失联 / 视频故障 / 检测失效 / 录像失败) are
+# carried by four independent fields, each with its own vocabulary — they are
+# not values of one shared enum:
+#   * ``link``       device reachability          ``online``/``offline``/``unknown``
+#   * ``video``      camera pipeline flag         ``ok``/``failed``/``unknown``
+#   * ``recording``  recorder flag                ``ok``/``failed``/``unknown``
+#   * ``detection``  per-detector liveness        ``ok``/``stale``/``unknown``
+# Only ``video`` and ``recording`` can be ``failed``, because only they have an
+# explicit hardware flag (``video_ok`` / ``recording_ok``) to report it. A
+# detector has no separate failure signal, so a detector whose completions have
+# aged past the staleness threshold *is* the representation of detection
+# failure (检测失效): it surfaces as ``stale``, never ``failed``.
+LinkState = Literal["online", "offline", "unknown"]
+FlagState = Literal["ok", "failed", "unknown"]
+DetectionState = Literal["ok", "stale", "unknown"]
 
 # The three detectors a device reports on, mapped to their devices-table
 # columns. Staleness is derived from the device's own millisecond uptime
@@ -73,7 +90,7 @@ def record_report(
         )
 
 
-def _link_state(row: sqlite3.Row | None, now: float, timeout_s: int) -> str:
+def _link_state(row: sqlite3.Row | None, now: float, timeout_s: int) -> LinkState:
     """Liveness from the hub clock: never seen is ``unknown``, not offline."""
 
     if row is None or row["last_seen_at"] is None:
@@ -81,7 +98,7 @@ def _link_state(row: sqlite3.Row | None, now: float, timeout_s: int) -> str:
     return "online" if now - row["last_seen_at"] <= timeout_s else "offline"
 
 
-def _flag_state(row: sqlite3.Row | None, column: str) -> str:
+def _flag_state(row: sqlite3.Row | None, column: str) -> FlagState:
     """Map a boolean report flag to ``ok``/``failed``/``unknown``.
 
     A missing row or an unset flag is ``unknown`` — an absent report is never
@@ -95,12 +112,15 @@ def _flag_state(row: sqlite3.Row | None, column: str) -> str:
 
 def _detector_state(
     row: sqlite3.Row | None, column: str, stale_s: int
-) -> str:
+) -> DetectionState:
     """Judge one detector from its own uptime delta.
 
     ``uptime_ms - last_detection_ms`` measures how long ago the detector last
-    completed, independent of any wall clock. A gap wider than ``stale_s``
-    marks the detector ``stale``; a missing row or value is ``unknown``.
+    completed, independent of any wall clock. A missing row or value is
+    ``unknown``. A gap strictly greater than ``stale_s`` marks the detector
+    ``stale`` — this is how 检测失效 (detection failure) is represented; there
+    is no separate ``failed`` state for a detector. Any younger gap is ``ok``,
+    including a gap exactly equal to ``stale_s``.
     """
 
     if row is None or row[column] is None or row["uptime_ms"] is None:
@@ -121,8 +141,11 @@ def device_health(
 
     The result is JSON-serializable and always has the same shape, whether or
     not the device has ever checked in: ``device_id``, ``link``
-    (``online``/``offline``/``unknown``), ``video``, ``detection`` (one state
-    per detector) and ``recording``, plus the recorded ``last_seen_at``.
+    (``online``/``offline``/``unknown``), ``video`` (``ok``/``failed``/
+    ``unknown``), ``detection`` (one ``ok``/``stale``/``unknown`` state per
+    detector — a stalled detector is ``stale``, never ``failed``),
+    ``recording`` (``ok``/``failed``/``unknown``) and the recorded
+    ``last_seen_at``.
     """
 
     row = conn.execute(
