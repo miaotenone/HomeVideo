@@ -315,7 +315,7 @@ git commit -m "feat(hub): idempotent event metadata ingest"
 **Interfaces:**
 - Consumes: `events.upsert_event`、`Settings.snapshot_dir`
 - Produces:
-  - `storage.write_stream(stream: Iterable[bytes], dest: Path) -> tuple[int, str]`，返回 `(size_bytes, sha256_hex)`，边写边算校验值
+  - `storage.write_stream(stream: AsyncIterable[bytes], dest: Path) -> tuple[int, str]`（`async def`；`request.stream()` 是异步生成器，调用方必须 `await`），返回 `(size_bytes, sha256_hex)`，边写边算校验值
   - `storage.sha256_file(path: Path) -> str`
   - `storage.safe_delete(path: Path) -> None`
   - `events.store_snapshot(conn, event_id: str, dest: Path, sha256: str, size_bytes: int, content_type: str, now: float) -> str`，返回 `"stored"` 或 `"duplicate"`
@@ -410,7 +410,7 @@ git commit -m "feat(hub): streaming snapshot upload with idempotency"
 - Test: `hub/tests/test_segments.py`
 
 **Interfaces:**
-- Consumes: `storage.write_stream`、`events.get_segment`、`Settings.segment_dir`、`Settings.max_event_bytes`、`Settings.metadata_reserve_bytes`
+- Consumes: `storage.write_stream`（异步，需 `await`）、`events.get_segment`、`Settings.segment_dir`、`Settings.max_event_bytes`、`Settings.metadata_reserve_bytes`
 - Produces:
   - `storage.InsufficientStorage(Exception)`
   - `storage.free_bytes(path: Path) -> int`
