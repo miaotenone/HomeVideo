@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+from pathlib import Path
 
+from . import storage
 from .models import EventCreate
+
+# Snapshot file extensions derived from the uploaded Content-Type.
+_SNAPSHOT_EXTENSIONS = {"image/png": ".png", "image/jpeg": ".jpg"}
 
 _UPSERT_EVENT = """
     INSERT INTO events (
@@ -72,3 +78,48 @@ def upsert_event(
         )
 
     return payload.event_id, created
+
+
+def _snapshot_extension(content_type: str | None) -> str:
+    """Map a Content-Type to the snapshot file extension (``.bin`` fallback)."""
+
+    media_type = (content_type or "").split(";", 1)[0].strip().lower()
+    return _SNAPSHOT_EXTENSIONS.get(media_type, ".bin")
+
+
+def store_snapshot(
+    conn: sqlite3.Connection,
+    event_id: str,
+    dest: Path,
+    sha256: str,
+    size_bytes: int,
+    content_type: str,
+    now: float,
+) -> str:
+    """Publish the staged snapshot at ``dest`` and record it.
+
+    ``dest`` is the temporary file the caller streamed the upload into; on a
+    first arrival it is renamed to its canonical name ``f"{event_id}{ext}"``
+    and a ``snapshots`` row is inserted. If a row already exists for the
+    event — whatever its checksum — the upload is a duplicate: the staged
+    file is deleted and ``"duplicate"`` is returned without writing a second
+    file or row. Returns ``"stored"`` when the snapshot is published.
+    """
+
+    with conn:
+        existing = conn.execute(
+            "SELECT 1 FROM snapshots WHERE event_id = ?", (event_id,)
+        ).fetchone()
+        if existing is not None:
+            storage.safe_delete(dest)
+            return "duplicate"
+        final = dest.with_name(f"{event_id}{_snapshot_extension(content_type)}")
+        os.replace(dest, final)
+        conn.execute(
+            "INSERT INTO snapshots "
+            "(event_id, path, content_type, sha256, size_bytes, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (event_id, str(final), content_type, sha256, size_bytes, now),
+        )
+
+    return "stored"

@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import time
+import uuid
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from . import storage
 from .config import Settings, load_settings
 from .db import connect, init_db
-from .events import upsert_event
+from .events import store_snapshot, upsert_event
 from .models import EventCreate
 
 
@@ -46,6 +48,45 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return JSONResponse(
             status_code=201 if created else 200,
             content={"event_id": event_id, "created": created},
+        )
+
+    @app.post("/api/v1/events/{event_id}/snapshot")
+    async def upload_snapshot(event_id: str, request: Request) -> JSONResponse:
+        conn = request.app.state.conn
+        snapshot_dir = request.app.state.settings.snapshot_dir
+
+        if (
+            conn.execute(
+                "SELECT 1 FROM events WHERE event_id = ?", (event_id,)
+            ).fetchone()
+            is None
+        ):
+            return JSONResponse(
+                status_code=404, content={"detail": "event not found"}
+            )
+
+        content_type = request.headers.get("content-type", "")
+        staged = snapshot_dir / f".{event_id}.{uuid.uuid4().hex}.upload"
+        try:
+            size_bytes, sha256 = await storage.write_stream(
+                request.stream(), staged
+            )
+            status = store_snapshot(
+                conn,
+                event_id,
+                staged,
+                sha256,
+                size_bytes,
+                content_type,
+                time.time(),
+            )
+        except BaseException:
+            storage.safe_delete(staged)
+            raise
+
+        return JSONResponse(
+            status_code=201 if status == "stored" else 200,
+            content={"event_id": event_id, "status": status},
         )
 
     return app
