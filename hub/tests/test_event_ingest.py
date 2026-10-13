@@ -42,6 +42,22 @@ def test_unknown_event_type_is_rejected(client):
     assert r.status_code == 422
 
 
+def test_event_id_traversal_is_rejected_and_writes_nothing(client, settings):
+    # event_id is used verbatim as a filename stem everywhere (notifications,
+    # snapshots, segments), so path separators, traversal and absolute paths
+    # must be rejected at the protocol boundary before any file is touched.
+    for bad in ("../escaped", "/tmp/pwned", "a/b", "..\\escaped", "x" * 129):
+        r = client.post("/api/v1/events", json=_body(event_id=bad))
+        assert r.status_code == 422, bad
+    # No notification (or any other) file escaped the notification directory.
+    assert list(settings.notification_dir.iterdir()) == []
+    assert not (settings.data_dir / "escaped.json").exists()
+    assert not (settings.data_dir.parent / "escaped.json").exists()
+    # And no event row was written.
+    assert client.app.state.conn.execute(
+        "SELECT COUNT(*) AS c FROM events").fetchone()["c"] == 0
+
+
 def test_untrusted_time_keeps_wall_clock_null(client):
     body = _body(time_trusted=False, started_at=None)
     assert client.post("/api/v1/events", json=body).status_code == 201

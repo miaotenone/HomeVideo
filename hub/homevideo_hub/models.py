@@ -1,11 +1,18 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # The device only ever reports these three detection/event kinds.
 EventType = Literal["person_intrusion", "fire_suspected", "smoke_suspected"]
+
+# ``event_id`` is used verbatim as an on-disk filename stem (notifications,
+# snapshots and segments all derive their names from it), so it must never
+# contain a path separator or drive the path out of its directory. The
+# allowed alphabet excludes ``/`` and ``\`` outright, which also rules out
+# ``..`` traversal and absolute paths.
+EventId = Annotated[str, Field(pattern=r"^[A-Za-z0-9._-]{1,128}$")]
 
 # "unknown" is the hub's default before a device has acknowledged a mode.
 ArmMode = Literal["home", "away", "unknown"]
@@ -23,7 +30,7 @@ class Detection(BaseModel):
 class EventCreate(BaseModel):
     """Metadata the device uploads when an event starts."""
 
-    event_id: str
+    event_id: EventId
     device_id: str
     event_type: EventType
     started_at: float | None = None

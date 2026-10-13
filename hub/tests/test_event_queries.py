@@ -57,6 +57,18 @@ def test_unknown_event_detail_returns_404(client):
     assert client.get(f"/api/v1/events/{uuid.uuid4()}").status_code == 404
 
 
+def test_limit_and_offset_are_bounded(client):
+    # Unbounded paging would let a caller dump the whole table (limit=-1);
+    # the boundary now rejects out-of-range values with 422.
+    assert client.get("/api/v1/events", params={"limit": 0}).status_code == 422
+    assert client.get("/api/v1/events", params={"limit": 501}).status_code == 422
+    assert client.get("/api/v1/events", params={"limit": -1}).status_code == 422
+    assert client.get("/api/v1/events", params={"offset": -1}).status_code == 422
+    ok = client.get("/api/v1/events", params={"limit": 500, "offset": 0})
+    assert ok.status_code == 200
+    assert ok.json()["limit"] == 500
+
+
 def test_untrusted_close_keeps_duration_and_null_times(client):
     # Fallback ordering for an untrusted clock: boot id + monotonic start
     # survive, and the event length must survive as duration_ms.

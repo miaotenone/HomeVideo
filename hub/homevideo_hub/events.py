@@ -95,6 +95,7 @@ def store_snapshot(
     size_bytes: int,
     content_type: str,
     now: float,
+    max_event_bytes: int,
 ) -> str:
     """Publish the staged snapshot at ``dest`` and record it.
 
@@ -104,6 +105,12 @@ def store_snapshot(
     event — whatever its checksum — the upload is a duplicate: the staged
     file is deleted and ``"duplicate"`` is returned without writing a second
     file or row. Returns ``"stored"`` when the snapshot is published.
+
+    The event's cumulative stored bytes (segments plus this snapshot) must
+    stay within ``max_event_bytes``; otherwise
+    :class:`storage.InsufficientStorage` is raised and nothing is kept. The
+    duplicate check runs first, so re-uploading an existing snapshot is still
+    an idempotent 200 and is never rejected by the cap.
     """
 
     with conn:
@@ -113,6 +120,12 @@ def store_snapshot(
         if existing is not None:
             storage.safe_delete(dest)
             return "duplicate"
+        if _event_stored_bytes(conn, event_id) + size_bytes > max_event_bytes:
+            storage.safe_delete(dest)
+            raise storage.InsufficientStorage(
+                f"event {event_id} would exceed "
+                f"max_event_bytes={max_event_bytes}"
+            )
         final = dest.with_name(f"{event_id}{_snapshot_extension(content_type)}")
         os.replace(dest, final)
         conn.execute(
