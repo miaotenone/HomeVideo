@@ -6,7 +6,7 @@ import uuid
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from . import storage
+from . import health, storage
 from .config import Settings, load_settings
 from .db import connect, init_db
 from .events import (
@@ -18,7 +18,7 @@ from .events import (
     store_snapshot,
     upsert_event,
 )
-from .models import EventClose, EventCreate
+from .models import DeviceReport, EventClose, EventCreate
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -47,6 +47,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="HomeVideo Hub")
     app.state.settings = settings
     app.state.conn = conn
+
+    @app.post("/api/v1/device/heartbeat")
+    def device_heartbeat(payload: DeviceReport, request: Request) -> JSONResponse:
+        health.record_report(request.app.state.conn, payload, time.time())
+        return JSONResponse(
+            status_code=200,
+            content={"device_id": payload.device_id, "status": "ok"},
+        )
+
+    @app.get("/api/v1/devices/{device_id}/health")
+    def device_health_route(device_id: str, request: Request) -> JSONResponse:
+        settings = request.app.state.settings
+        state = health.device_health(
+            request.app.state.conn,
+            device_id,
+            time.time(),
+            timeout_s=settings.heartbeat_timeout_seconds,
+            stale_s=settings.detection_stale_seconds,
+        )
+        return JSONResponse(content=state)
+
+    @app.get("/api/v1/health")
+    def health_overview(request: Request) -> JSONResponse:
+        settings = request.app.state.settings
+        devices = health.overview(
+            request.app.state.conn,
+            time.time(),
+            timeout_s=settings.heartbeat_timeout_seconds,
+            stale_s=settings.detection_stale_seconds,
+        )
+        return JSONResponse(content={"devices": devices})
 
     @app.post("/api/v1/events")
     def create_event(payload: EventCreate, request: Request) -> JSONResponse:
