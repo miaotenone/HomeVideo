@@ -123,3 +123,82 @@ def store_snapshot(
         )
 
     return "stored"
+
+
+class SegmentConflict(Exception):
+    """Raised when a ``(event_id, seq)`` row exists with another checksum."""
+
+
+def get_segment(
+    conn: sqlite3.Connection, event_id: str, seq: int
+) -> sqlite3.Row | None:
+    """Return the stored segment row for ``(event_id, seq)``, if any."""
+
+    return conn.execute(
+        "SELECT * FROM segments WHERE event_id = ? AND seq = ?",
+        (event_id, seq),
+    ).fetchone()
+
+
+def _event_stored_bytes(conn: sqlite3.Connection, event_id: str) -> int:
+    """Total bytes this event already occupies across segments and snapshot."""
+
+    segments_total = conn.execute(
+        "SELECT COALESCE(SUM(size_bytes), 0) FROM segments WHERE event_id = ?",
+        (event_id,),
+    ).fetchone()[0]
+    snapshot = conn.execute(
+        "SELECT size_bytes FROM snapshots WHERE event_id = ?", (event_id,)
+    ).fetchone()
+    return int(segments_total) + (snapshot["size_bytes"] if snapshot else 0)
+
+
+def store_segment(
+    conn: sqlite3.Connection,
+    event_id: str,
+    seq: int,
+    dest: Path,
+    sha256: str,
+    size_bytes: int,
+    now: float,
+    max_event_bytes: int,
+) -> str:
+    """Publish the staged segment at ``dest`` and record it.
+
+    ``dest`` is the temporary file the caller streamed the upload into; on a
+    first arrival it is renamed atomically to ``f"{event_id}_{seq}.bin"`` and
+    a ``segments`` row is inserted. Re-uploading the same ``(event_id, seq)``
+    with the same checksum is an idempotent duplicate: the staged file is
+    deleted and ``"duplicate"`` is returned. A different checksum for the
+    same sequence raises :class:`SegmentConflict` and is never overwritten.
+    The event's cumulative stored bytes (segments plus snapshot) must stay
+    within ``max_event_bytes``; otherwise :class:`storage.InsufficientStorage`
+    is raised. Every failure path deletes the staged file.
+    """
+
+    existing = get_segment(conn, event_id, seq)
+    if existing is not None:
+        storage.safe_delete(dest)
+        if existing["sha256"] == sha256:
+            return "duplicate"
+        raise SegmentConflict(
+            f"segment {event_id}/{seq} already stored with a different checksum"
+        )
+
+    if _event_stored_bytes(conn, event_id) + size_bytes > max_event_bytes:
+        storage.safe_delete(dest)
+        raise storage.InsufficientStorage(
+            f"event {event_id} would exceed max_event_bytes={max_event_bytes}"
+        )
+
+    final = dest.with_name(f"{event_id}_{seq}.bin")
+    os.replace(dest, final)
+    with conn:
+        conn.execute(
+            "INSERT INTO segments "
+            "(event_id, seq, path, sha256, size_bytes, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (event_id, seq, str(final), sha256, size_bytes, now, now),
+        )
+
+    return "stored"

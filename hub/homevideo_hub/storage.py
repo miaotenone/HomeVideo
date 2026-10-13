@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import hashlib
+import shutil
 from collections.abc import AsyncIterable
 from pathlib import Path
 
 _BLOCK_SIZE = 1024 * 1024
+
+
+class InsufficientStorage(Exception):
+    """Raised when free disk space cannot cover an incoming upload."""
 
 
 async def write_stream(stream: AsyncIterable[bytes], dest: Path) -> tuple[int, str]:
@@ -44,3 +49,26 @@ def safe_delete(path: Path) -> None:
         path.unlink()
     except FileNotFoundError:
         pass
+
+
+def free_bytes(path: Path) -> int:
+    """Return the free bytes on the filesystem backing ``path``."""
+
+    return shutil.disk_usage(path).free
+
+
+def ensure_capacity(
+    path: Path, required_bytes: int, reserve_bytes: int
+) -> None:
+    """Raise :class:`InsufficientStorage` unless ``required_bytes`` fit.
+
+    Capacity is judged purely from the filesystem's free space: the
+    upload is rejected when free space minus ``reserve_bytes`` (the head
+    room kept for metadata) is smaller than the bytes to be written.
+    """
+
+    if free_bytes(path) - reserve_bytes < required_bytes:
+        raise InsufficientStorage(
+            f"needed {required_bytes} bytes, free space minus reserve is "
+            f"insufficient at {path}"
+        )

@@ -9,7 +9,12 @@ from fastapi.responses import JSONResponse
 from . import storage
 from .config import Settings, load_settings
 from .db import connect, init_db
-from .events import store_snapshot, upsert_event
+from .events import (
+    SegmentConflict,
+    store_segment,
+    store_snapshot,
+    upsert_event,
+)
 from .models import EventCreate
 
 
@@ -87,6 +92,72 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return JSONResponse(
             status_code=201 if status == "stored" else 200,
             content={"event_id": event_id, "status": status},
+        )
+
+    @app.put("/api/v1/events/{event_id}/segments/{seq}")
+    async def upload_segment(
+        event_id: str, seq: int, request: Request
+    ) -> JSONResponse:
+        conn = request.app.state.conn
+        settings = request.app.state.settings
+        segment_dir = settings.segment_dir
+
+        if (
+            conn.execute(
+                "SELECT 1 FROM events WHERE event_id = ?", (event_id,)
+            ).fetchone()
+            is None
+        ):
+            return JSONResponse(
+                status_code=404, content={"detail": "event not found"}
+            )
+
+        declared = request.headers.get("x-segment-sha256", "")
+        staged = segment_dir / f".{event_id}.{seq}.{uuid.uuid4().hex}.upload"
+        try:
+            size_bytes, sha256 = await storage.write_stream(
+                request.stream(), staged
+            )
+            if declared.strip().lower() != sha256:
+                storage.safe_delete(staged)
+                return JSONResponse(
+                    status_code=400, content={"detail": "checksum mismatch"}
+                )
+            storage.ensure_capacity(
+                segment_dir, size_bytes, settings.metadata_reserve_bytes
+            )
+            try:
+                status = store_segment(
+                    conn,
+                    event_id,
+                    seq,
+                    staged,
+                    sha256,
+                    size_bytes,
+                    time.time(),
+                    settings.max_event_bytes,
+                )
+            except SegmentConflict:
+                return JSONResponse(
+                    status_code=409, content={"detail": "segment conflict"}
+                )
+        except storage.InsufficientStorage:
+            storage.safe_delete(staged)
+            return JSONResponse(
+                status_code=507, content={"detail": "insufficient storage"}
+            )
+        except BaseException:
+            storage.safe_delete(staged)
+            raise
+
+        return JSONResponse(
+            status_code=201 if status == "stored" else 200,
+            content={
+                "event_id": event_id,
+                "seq": seq,
+                "status": status,
+                "sha256": sha256,
+            },
         )
 
     return app
