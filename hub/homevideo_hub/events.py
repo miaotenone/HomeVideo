@@ -6,7 +6,7 @@ import sqlite3
 from pathlib import Path
 
 from . import storage
-from .models import EventCreate
+from .models import EventClose, EventCreate
 
 # Snapshot file extensions derived from the uploaded Content-Type.
 _SNAPSHOT_EXTENSIONS = {"image/png": ".png", "image/jpeg": ".jpg"}
@@ -202,3 +202,109 @@ def store_segment(
         )
 
     return "stored"
+
+
+def _row_to_dict(row: sqlite3.Row) -> dict:
+    """Copy a ``sqlite3.Row`` into a plain, JSON-serializable dict."""
+
+    return {key: row[key] for key in row.keys()}
+
+
+def _serialize_event(row: sqlite3.Row) -> dict:
+    """Convert an ``events`` row into a JSON-serializable dict.
+
+    ``time_trusted`` is normalized to a real ``bool`` and the stored
+    ``detections_json`` text is decoded into a ``detections`` list. No
+    ``sqlite3.Row`` ever leaks past this point.
+    """
+
+    event = _row_to_dict(row)
+    event["time_trusted"] = bool(event["time_trusted"])
+    raw_detections = event.pop("detections_json", None)
+    event["detections"] = json.loads(raw_detections) if raw_detections else []
+    return event
+
+
+def close_event(
+    conn: sqlite3.Connection,
+    event_id: str,
+    payload: EventClose,
+    now: float,
+) -> None:
+    """Mark an event ``closed`` and stamp ``closed_at`` from the hub clock.
+
+    The device-supplied ``ended_at``/``duration_ms`` accompany the payload but
+    are not persisted: the schema records a single hub-side closure time,
+    which stays trustworthy regardless of the device clock. Closing an event
+    with no segments (or one already closed) is allowed and idempotent.
+    """
+
+    with conn:
+        conn.execute(
+            "UPDATE events SET status = 'closed', closed_at = ?, updated_at = ? "
+            "WHERE event_id = ?",
+            (now, now, event_id),
+        )
+
+
+def get_event(conn: sqlite3.Connection, event_id: str) -> dict | None:
+    """Return the full detail for ``event_id``, or ``None`` when unknown.
+
+    The result holds only JSON-serializable native types: ``snapshot`` is a
+    ``dict`` or ``None`` and ``segments`` is a ``list[dict]`` ordered by
+    ``seq`` ascending.
+    """
+
+    row = conn.execute(
+        "SELECT * FROM events WHERE event_id = ?", (event_id,)
+    ).fetchone()
+    if row is None:
+        return None
+
+    event = _serialize_event(row)
+    snapshot = conn.execute(
+        "SELECT * FROM snapshots WHERE event_id = ?", (event_id,)
+    ).fetchone()
+    event["snapshot"] = _row_to_dict(snapshot) if snapshot is not None else None
+    event["segments"] = [
+        _row_to_dict(segment)
+        for segment in conn.execute(
+            "SELECT * FROM segments WHERE event_id = ? ORDER BY seq ASC",
+            (event_id,),
+        ).fetchall()
+    ]
+    return event
+
+
+def list_events(
+    conn: sqlite3.Connection,
+    *,
+    event_type: str | None = None,
+    status: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict]:
+    """Return event summaries, most recently received first.
+
+    ``event_type`` and ``status`` narrow the result; ``limit``/``offset`` page
+    through it. Untrusted-time events still sort by ``received_at`` and carry
+    ``started_at: None``. Each item is a JSON-serializable dict of the event's
+    own columns (no snapshot or segments).
+    """
+
+    clauses: list[str] = []
+    params: list[object] = []
+    if event_type is not None:
+        clauses.append("event_type = ?")
+        params.append(event_type)
+    if status is not None:
+        clauses.append("status = ?")
+        params.append(status)
+    where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+
+    rows = conn.execute(
+        f"SELECT * FROM events{where} "
+        "ORDER BY received_at DESC, event_id ASC LIMIT ? OFFSET ?",
+        (*params, limit, offset),
+    ).fetchall()
+    return [_serialize_event(row) for row in rows]

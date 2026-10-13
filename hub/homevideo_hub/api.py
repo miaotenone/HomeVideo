@@ -11,11 +11,14 @@ from .config import Settings, load_settings
 from .db import connect, init_db
 from .events import (
     SegmentConflict,
+    close_event,
+    get_event,
+    list_events,
     store_segment,
     store_snapshot,
     upsert_event,
 )
-from .models import EventCreate
+from .models import EventClose, EventCreate
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -159,5 +162,43 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "sha256": sha256,
             },
         )
+
+    @app.post("/api/v1/events/{event_id}/close")
+    def close_event_route(
+        event_id: str, payload: EventClose, request: Request
+    ) -> JSONResponse:
+        close_event(request.app.state.conn, event_id, payload, time.time())
+        return JSONResponse(
+            status_code=200,
+            content={"event_id": event_id, "status": "closed"},
+        )
+
+    @app.get("/api/v1/events")
+    def query_events(
+        request: Request,
+        event_type: str | None = None,
+        status: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> JSONResponse:
+        items = list_events(
+            request.app.state.conn,
+            event_type=event_type,
+            status=status,
+            limit=limit,
+            offset=offset,
+        )
+        return JSONResponse(
+            content={"items": items, "limit": limit, "offset": offset}
+        )
+
+    @app.get("/api/v1/events/{event_id}")
+    def event_detail(event_id: str, request: Request) -> JSONResponse:
+        event = get_event(request.app.state.conn, event_id)
+        if event is None:
+            return JSONResponse(
+                status_code=404, content={"detail": "event not found"}
+            )
+        return JSONResponse(content=event)
 
     return app

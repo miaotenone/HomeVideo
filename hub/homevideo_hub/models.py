@@ -40,7 +40,7 @@ class EventClose(BaseModel):
     """Metadata the device uploads when an event ends."""
 
     ended_at: float | None = None
-    duration_ms: int
+    duration_ms: int | None = None
     time_trusted: bool = False
 
 
