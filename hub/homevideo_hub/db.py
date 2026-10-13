@@ -48,7 +48,9 @@ _SCHEMA_STATEMENTS: tuple[str, ...] = (
         status TEXT NOT NULL DEFAULT 'active',
         created_at REAL NOT NULL,
         updated_at REAL NOT NULL,
-        closed_at REAL
+        closed_at REAL,
+        ended_at REAL,
+        duration_ms INTEGER
     )
     """,
     """

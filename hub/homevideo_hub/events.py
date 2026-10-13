@@ -233,17 +233,20 @@ def close_event(
 ) -> None:
     """Mark an event ``closed`` and stamp ``closed_at`` from the hub clock.
 
-    The device-supplied ``ended_at``/``duration_ms`` accompany the payload but
-    are not persisted: the schema records a single hub-side closure time,
-    which stays trustworthy regardless of the device clock. Closing an event
-    with no segments (or one already closed) is allowed and idempotent.
+    End information is persisted alongside the closure: ``ended_at`` follows
+    the same trust rule as ``started_at`` — an untrusted device clock never
+    contributes a wall-clock time, so it is stored as ``NULL`` — while
+    ``duration_ms`` is always recorded because it is the only surviving length
+    measure for a time-untrusted event. Closing an event with no segments (or
+    one already closed) is allowed and idempotent.
     """
 
+    ended_at = payload.ended_at if payload.time_trusted else None
     with conn:
         conn.execute(
-            "UPDATE events SET status = 'closed', closed_at = ?, updated_at = ? "
-            "WHERE event_id = ?",
-            (now, now, event_id),
+            "UPDATE events SET status = 'closed', closed_at = ?, updated_at = ?, "
+            "ended_at = ?, duration_ms = ? WHERE event_id = ?",
+            (now, now, ended_at, payload.duration_ms, event_id),
         )
 
 

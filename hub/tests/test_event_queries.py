@@ -55,3 +55,33 @@ def test_list_filters_by_type_and_status(client):
 
 def test_unknown_event_detail_returns_404(client):
     assert client.get(f"/api/v1/events/{uuid.uuid4()}").status_code == 404
+
+
+def test_untrusted_close_keeps_duration_and_null_times(client):
+    # Fallback ordering for an untrusted clock: boot id + monotonic start
+    # survive, and the event length must survive as duration_ms.
+    eid = _event(client, time_trusted=False, started_at=None)
+    client.post(f"/api/v1/events/{eid}/close",
+                json={"ended_at": 1_700_000_030.0, "duration_ms": 42_000,
+                      "time_trusted": False})
+    detail = client.get(f"/api/v1/events/{eid}").json()
+    assert detail["started_at"] is None
+    assert detail["ended_at"] is None          # untrusted end time not persisted
+    assert detail["duration_ms"] == 42_000     # duration always persisted
+
+    listed = [e for e in client.get("/api/v1/events").json()["items"]
+              if e["event_id"] == eid][0]
+    assert listed["started_at"] is None
+    assert listed["ended_at"] is None
+    assert listed["duration_ms"] == 42_000
+
+
+def test_trusted_close_persists_ended_at(client):
+    eid = _event(client, time_trusted=True, started_at=1_700_000_000.0)
+    client.post(f"/api/v1/events/{eid}/close",
+                json={"ended_at": 1_700_000_030.0, "duration_ms": 30_000,
+                      "time_trusted": True})
+    detail = client.get(f"/api/v1/events/{eid}").json()
+    assert detail["started_at"] == 1_700_000_000.0
+    assert detail["ended_at"] == 1_700_000_030.0
+    assert detail["duration_ms"] == 30_000
