@@ -53,6 +53,12 @@ struct EventSpec {
   int64_t pre_roll_ms = 10000;
   int64_t post_roll_ms = 20000;
   int64_t segment_ms = 60000;
+  /**
+   * Secondary roll trigger so a segment stays bounded in RAM. On the board the
+   * segmenter holds one segment while it fills; with a 2 Mbps stream and a 2 s
+   * GOP this caps peak use at roughly segment_bytes + one GOP (design §5.2).
+   */
+  uint64_t segment_bytes = 4ull * 1024 * 1024;
   int64_t merge_window_ms = 30000;
   uint64_t ring_buffer_bytes = 8ull * 1024 * 1024;
 };

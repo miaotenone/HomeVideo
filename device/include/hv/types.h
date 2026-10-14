@@ -3,6 +3,7 @@
 // Types shared by every device module. Deliberately dependency-free so this
 // header can be included anywhere (including the platform backends).
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -61,6 +62,21 @@ inline std::optional<ArmMode> arm_mode_from_wire(const std::string& text) {
   if (text == "unknown") return ArmMode::Unknown;
   return std::nullopt;
 }
+
+/** Fixed slot per label, so per-label state can live in a std::array of 3. */
+inline size_t index_of(EventType type) {
+  switch (type) {
+    case EventType::PersonIntrusion:
+      return 0;
+    case EventType::FireSuspected:
+      return 1;
+    case EventType::SmokeSuspected:
+      return 2;
+  }
+  return 0;
+}
+
+inline constexpr size_t kEventTypeCount = 3;
 
 struct BBox {
   int x = 0;

@@ -19,6 +19,9 @@ add_library(hv_core STATIC
   src/log.cpp
   src/clock.cpp
   src/config.cpp
+  src/recorder.cpp
+  src/spool.cpp
+  src/hub_client.cpp
   src/platform/desktop_camera.cpp
   src/platform/desktop_encoder.cpp
   src/platform/desktop_detector.cpp

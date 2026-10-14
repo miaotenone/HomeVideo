@@ -254,6 +254,9 @@ Result validate(const DeviceConfig& config) {
   if (config.event.merge_window_ms < 0) {
     return invalid("event.merge_window_ms", "must be >= 0");
   }
+  if (config.event.segment_bytes == 0) {
+    return invalid("event.segment_bytes", "must be > 0");
+  }
   if (config.event.ring_buffer_bytes == 0) {
     return invalid("event.ring_buffer_bytes", "must be > 0");
   }
@@ -403,6 +406,7 @@ Result load_config(const std::filesystem::path& file,
       read_i64(*g, "pre_roll_ms", config.event.pre_roll_ms);
       read_i64(*g, "post_roll_ms", config.event.post_roll_ms);
       read_i64(*g, "segment_ms", config.event.segment_ms);
+      read_u64(*g, "segment_bytes", config.event.segment_bytes);
       read_i64(*g, "merge_window_ms", config.event.merge_window_ms);
       read_u64(*g, "ring_buffer_bytes", config.event.ring_buffer_bytes);
     }
@@ -470,6 +474,7 @@ Result load_config(const std::filesystem::path& file,
   HV_ENV_INT("HOMEVIDEO_EVENT_PRE_ROLL_MS", event.pre_roll_ms)
   HV_ENV_INT("HOMEVIDEO_EVENT_POST_ROLL_MS", event.post_roll_ms)
   HV_ENV_INT("HOMEVIDEO_EVENT_SEGMENT_MS", event.segment_ms)
+  HV_ENV_INT("HOMEVIDEO_EVENT_SEGMENT_BYTES", event.segment_bytes)
   HV_ENV_INT("HOMEVIDEO_EVENT_MERGE_WINDOW_MS", event.merge_window_ms)
   HV_ENV_INT("HOMEVIDEO_EVENT_RING_BUFFER_BYTES", event.ring_buffer_bytes)
   HV_ENV_INT("HOMEVIDEO_UPLOAD_HEARTBEAT_MS", upload.heartbeat_ms)
