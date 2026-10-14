@@ -1,0 +1,4 @@
+build/
+.spool/
+*.o
+*.a

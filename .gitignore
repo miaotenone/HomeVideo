@@ -1,5 +1,8 @@
 .playwright-mcp/
 
+# Build output
+build/
+
 # Python
 .venv/
 __pycache__/
