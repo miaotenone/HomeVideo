@@ -97,6 +97,21 @@ V831 持续采集、编码和检测。没有事件且无人观看时，不向树
 
 选择有对应示例且可以复现的组合，不仅依据版本新旧选镜像。涉及刷机时，应先备份现有可用镜像和配置。
 
+按上述要求，当前选定并冻结的组合（2026-10-14 确认）：
+
+| 项目 | 选定值 | 备注 |
+| --- | --- | --- |
+| 系统镜像 | `v831-m2dock-maixpy3-0.5.4-20230505.zip`（132.39 MB） | 官方最新也是最后一版 V831 开源镜像。选自 `maixpy3` 变体而非 `maixhub` 变体，避免内置示例 app 抢占启动脚本；启动脚本为 `/root/main.py` |
+| 镜像校验值 | 下载后在本地计算 sha256 并记录 | 下载站未提供该日期的 md5，只有旧版 `v831-20220601.md5sum`；重刷和回滚时用于对齐 |
+| 镜像来源 | `https://dl.sipeed.com/shareURL/MaixII/MaixII-Dock/SDK/release` | 该页为脚本渲染，直接抓取看不到文件列表；大文件建议走页面上给出的百度网盘/MEGA 分流 |
+| 烧录工具 | PhoenixCard（Windows，选“启动卡”）或 livesuit（Linux） | 工具在 `.../SDK/tools`；M2 零售模组未焊 Flash，必须从 TF 卡启动，烧录会清空整卡 |
+| 交叉编译链 | `toolchain-sunxi-musl-pack-2021-01-09.tar.xz`，前缀 `arm-openwrt-linux-muslgnueabi-` | 直链：`https://github.com/sipeed/libmaix/releases/download/v0.1.0/toolchain-sunxi-musl-pack-2021-01-09.tar.xz` |
+| C SDK | libmaix（`git clone --recursive`，勿漏子模块） | 只提供采集/显示/图像/NN/OpenCV 封装，**不含视频编码接口** |
+| 硬件编码路径 | 全志 eyesee-mpp（镜像内已含 `eyesee-mpp-external`、`eyesee-mpp-middleware`、`eyesee-mpp-system`） | 是否可直接调用属待实测项；若缺头文件，需从 Tina SDK 获取后交叉编译 |
+| 备选路径 | 全志 `Tina-Linux/tina-V83x` SDK 自行构建镜像 | MPP 头文件与样例的可靠来源，构建较重，仅在主路径不可用时启用 |
+
+状态与风险：V831 已被 Sipeed 淘汰（官网建议改用 MaixCAM），MaixPy3 仓库已标记 DEPRECATED，最后一版镜像停留在 2023 年 5 月，官方从未提供 H.264 编码的使用示例。因此**硬件编码的可用性属于待实测项**，不能依据芯片标称能力推断；若该路径不可用，按 §9 的顺序优先尝试其他可复现的 SDK 路径。
+
 ### 4.2 视频与检测并行
 
 优先采用同一采集源的两条输出：
@@ -309,6 +324,26 @@ A 阶段还应验证至少一个模型的转换和加载路径。B 阶段的模�
 
 C 阶段加入环形覆盖与事件保留竞争、长事件分段、写盘失败、满盘、进程中断后的恢复测试。D 阶段叠加事件上传，验证视频观看不会使检测停滞。
 
+A 阶段的第一步是**枚举镜像实际提供的编码能力**，再据此决定编码实现路径。刷入 §4.1 中冻结的镜像后，通过 OTG 的 adb shell 或串口收集以下输出：
+
+```sh
+uname -a; cat /proc/cpuinfo | head -20
+opkg list | grep -i mpp
+ls -l /dev | grep -iE 'cedar|venc|mpp|video'
+ls /usr/lib | grep -iE 'mpp|cedar|venc'
+ls /usr/bin | grep -iE 'mpp|venc|sample'
+which ffmpeg; ffmpeg -hide_banner -encoders 2>/dev/null | grep -iE '264|265'
+cat /proc/meminfo | head -5; df -h
+```
+
+并确认摄像头可用：
+
+```sh
+python3 -c "from maix import camera; print(camera.capture().size())"
+```
+
+判读方式：设备上存在可调用的 MPP/venc 库时，直接用 MPP 的 C 接口写最小编码程序；只有运行库而无头文件时，从 Tina SDK 取头文件交叉编译；两者都不可用时，按 §9 判定该固件组合未达标并更换路径。此步的产出是“编码实现路径 + 可复现构建”的结论，之后才进入连续编码 1 小时和可播放性验证。硬件编码是否可用必须实测确认，不得依据芯片标称能力推断。
+
 ### 8.2 初始验收目标
 
 以下用于指导测试，不代表已有性能：
@@ -344,7 +379,7 @@ C 阶段加入环形覆盖与事件保留竞争、长事件分段、写盘失败
 
 先完成固件和硬件能力验证，再进入完整应用开发：
 
-1. 确认 V831 系统、SDK、编码接口和模型转换链。
+1. 确认 V831 系统、SDK、编码接口和模型转换链（固件与工具链已按 §4.1 选定冻结，编码能力按 §8.1 的步骤实测）。
 2. 跑通硬件编码、树莓派接入及手机远程观看。
 3. 在 V831 上加入人员检测，形成事件报警和回溯闭环。
 4. 加入火焰及烟雾候选模型，验证并行能力和实际效果。
