@@ -282,8 +282,10 @@ ARM="${TMP_DIR}/arm.json"
 hub_get "/api/v1/arm/status" "${ARM}"
 check_eq "desired arm mode is away" "${ARM}" 'd["desired"]["mode"]' 'away'
 check_eq "arm configuration is effective" "${ARM}" 'd["effective"]' 'True'
+# Double quotes on the shell side so ${DEVICE_ID} expands; single quotes on the
+# Python side so the expanded id is a plain string literal to eval().
 check_eq "device is listed as acknowledged" "${ARM}" \
-  '"${DEVICE_ID}" in d["acked_devices"]' 'True'
+  "'${DEVICE_ID}' in d['acked_devices']" 'True'
 check_eq "applied arm mode is away" "${ARM}" 'd["applied"] and d["applied"]["mode"]' 'away'
 
 # ---------------------------------------------------------------------------

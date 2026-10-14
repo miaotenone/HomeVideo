@@ -3,6 +3,9 @@
 # Build output
 build/
 
+# Local agent planning scratch (planning-with-files); not project content
+.planning/
+
 # Python
 .venv/
 __pycache__/

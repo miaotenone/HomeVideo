@@ -27,6 +27,7 @@ add_library(hv_core STATIC
   src/uploader.cpp
   src/pipeline.cpp
   src/supervisor.cpp
+  src/app.cpp
   src/platform/desktop_camera.cpp
   src/platform/desktop_encoder.cpp
   src/platform/desktop_detector.cpp
@@ -56,4 +57,17 @@ if(HV_BUILD_TESTS)
   target_include_directories(hv_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
   target_compile_options(hv_tests PRIVATE -Wall -Wextra)
   add_test(NAME hv_tests COMMAND hv_tests)
+endif()
+
+add_executable(hv_device src/main.cpp)
+target_link_libraries(hv_device PRIVATE hv_core)
+target_compile_options(hv_device PRIVATE -Wall -Wextra)
+
+# The end-to-end test drives the real Python hub, so it stays opt-in: the unit
+# tests above must remain runnable with nothing but a C++ compiler.
+option(HV_E2E "Register the device<->hub end-to-end test (needs the hub venv)" OFF)
+if(HV_BUILD_TESTS AND HV_E2E)
+  add_test(NAME device_hub_e2e
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tools/e2e_with_hub.sh)
+  set_tests_properties(device_hub_e2e PROPERTIES TIMEOUT 240)
 endif()

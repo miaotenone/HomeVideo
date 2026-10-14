@@ -131,6 +131,13 @@ build/device/hv_device --config device/config/example.json \
 每条断言打印 PASS/FAIL，末尾给出汇总；任一失败退出非零，并附带集线器日志尾部。脚本用
 `trap` 保证无论成功失败都杀掉集线器并删除临时目录。
 
+脚本也可以挂到 `ctest` 上，但默认关闭——单元测试必须只靠编译器就能跑：
+
+```
+cmake -S device -B build/device -DHV_E2E=ON
+ctest --test-dir build/device -R device_hub_e2e --output-on-failure
+```
+
 ## 待实机项
 
 - `device/src/platform/v831_camera.cpp`、`v831_encoder.cpp`、`v831_detector.cpp` 目前是
