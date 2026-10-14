@@ -254,6 +254,13 @@ Result validate(const DeviceConfig& config) {
   if (config.event.merge_window_ms < 0) {
     return invalid("event.merge_window_ms", "must be >= 0");
   }
+  // An event may not close before its own tail has been recorded; the gap
+  // between the two is what folds an intermittent burst into a single event.
+  if (config.event.merge_window_ms < config.event.post_roll_ms) {
+    return invalid("event.merge_window_ms",
+                   "must be >= event.post_roll_ms (the event would close "
+                   "before its post-roll tail was recorded)");
+  }
   if (config.event.segment_bytes == 0) {
     return invalid("event.segment_bytes", "must be > 0");
   }

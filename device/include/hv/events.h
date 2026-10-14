@@ -36,6 +36,8 @@ struct EventRecord {
   EventType type = EventType::PersonIntrusion;
   MonotonicMs start_ms = 0;
   std::optional<MonotonicMs> end_ms;
+  /** Last detection that belonged to this event; drives the merge window. */
+  MonotonicMs last_activity_ms = 0;
   /** Only set when the clock was trusted when the event opened (design §7.2). */
   std::optional<double> started_at_unix;
   bool time_trusted = false;
@@ -52,7 +54,15 @@ struct EventRecord {
 
 struct EventPolicy {
   int64_t pre_roll_ms = 10000;
+  /** How much video is appended after the last detection of an event. */
   int64_t post_roll_ms = 20000;
+  /**
+   * How long an event stays open after its last detection, so an intermittent
+   * burst folds into one event instead of two. Must be >= post_roll_ms (checked
+   * by config validation): an event may not close before its own tail is
+   * recorded, and a detection arriving before the merge window lapses extends
+   * the event rather than opening a second one.
+   */
   int64_t merge_window_ms = 30000;
   int64_t segment_ms = 60000;
   size_t segment_bytes = 4ull * 1024 * 1024;
@@ -125,6 +135,8 @@ class EventManager {
     uint32_t frames = 0;
     MonotonicMs first_ms = 0;
     MonotonicMs last_ms = 0;
+    /** Detections held while confirming, so the event keeps its evidence. */
+    std::vector<Detection> buffered;
   };
 
   bool qualifies(EventType type) const;

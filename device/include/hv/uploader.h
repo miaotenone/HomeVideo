@@ -52,6 +52,11 @@ struct UploaderLimits {
 class Uploader {
  public:
   Uploader(Spool& spool, HubClient& client, IClock& clock, UploaderLimits limits);
+  /** Out of line: Impl is incomplete here (see the same note on Pipeline). */
+  ~Uploader();
+
+  Uploader(const Uploader&) = delete;
+  Uploader& operator=(const Uploader&) = delete;
 
   /** Works the pending queue until the budget is spent or nothing is left. */
   void run_for(MonotonicMs budget_ms);

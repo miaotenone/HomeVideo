@@ -105,6 +105,8 @@ HV_TEST(config_invalid_values_name_the_field) {
       {R"({"device_id": "bad id!"})", "device_id"},
       {R"({"upload": {"max_attempts": 0}})", "upload.max_attempts"},
       {R"({"log_level": "loud"})", "log_level"},
+      {R"({"event": {"post_roll_ms": 40000, "merge_window_ms": 30000}})",
+       "event.merge_window_ms"},
   };
 
   for (const auto& item : cases) {
