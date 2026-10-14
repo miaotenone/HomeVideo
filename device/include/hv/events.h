@@ -121,6 +121,13 @@ class EventManager {
   /** Closes events whose post-roll window has expired. */
   void tick(MonotonicMs now);
 
+  /**
+   * Closes every active event at `now`. Used on graceful shutdown and by
+   * --once: the recording is complete up to now, so the event is finalised as
+   * Closed rather than left for mark_interrupted_events on the next boot.
+   */
+  void force_close_all(MonotonicMs now);
+
   const std::vector<EventRecord>& active_events() const { return active_; }
 
   /** Events that reached Closed since the last call, for upload scheduling. */

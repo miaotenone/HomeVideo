@@ -19,6 +19,11 @@ class V831Encoder : public IEncoder {
   Result open(const EncoderConfig&) override { return unavailable(); }
   bool encode(const Frame&, EncodedChunk&) override { return false; }
 
+  bool encode_snapshot(const Frame&, std::vector<uint8_t>&) override {
+    unavailable();
+    return false;
+  }
+
   const std::vector<uint8_t>& codec_config() const override { return config_; }
 
   void request_keyframe() override {}

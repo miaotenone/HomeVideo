@@ -226,10 +226,10 @@ void EventManager::tick(MonotonicMs now) {
 void EventManager::close_event(EventRecord& record, MonotonicMs now,
                                EventState terminal) {
   // The tail runs to post_roll after the last detection. merge_window_ms >=
-  // post_roll_ms is guaranteed by config validation, so end_ms is <= now and the
-  // tail is fully recorded before the event is closed (design §4.3).
-  (void)now;
-  record.end_ms = record.last_activity_ms + policy_.post_roll_ms;
+  // post_roll_ms is guaranteed by config validation, so the normal path closes
+  // with the full tail recorded; a forced close (shutdown, --once) can arrive
+  // earlier and then simply stops at now.
+  record.end_ms = std::min(now, record.last_activity_ms + policy_.post_roll_ms);
   record.state = EventState::Closing;
 
   // Flush the in-flight segment before announcing the close: an event tail may
@@ -262,6 +262,17 @@ void EventManager::close_event(EventRecord& record, MonotonicMs now,
   finished_.push_back(std::move(record));
   if (slot < active_.size()) {
     active_.erase(active_.begin() + static_cast<ptrdiff_t>(slot));
+  }
+}
+
+void EventManager::force_close_all(MonotonicMs now) {
+  // Graceful shutdown and --once end every live event here: the recording is
+  // complete up to now, so the manifest is finalised as Closed. Interrupted is
+  // reserved for a process that died without getting this far (see
+  // Spool::mark_interrupted_events).
+  for (;;) {
+    if (active_.empty()) break;
+    close_event(active_.front(), now, EventState::Closed);
   }
 }
 

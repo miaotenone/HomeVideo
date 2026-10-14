@@ -42,6 +42,13 @@ class IEncoder {
   virtual Result open(const EncoderConfig& config) = 0;
   /** Produces at most one chunk per frame; false means "nothing to emit yet". */
   virtual bool encode(const Frame& in, EncodedChunk& out) = 0;
+  /**
+   * Encodes a still from the frame supplied. The event snapshot is what the
+   * phone shows for an event, so production needs this to work (design §5.2);
+   * a backend whose hardware has no JPEG path returns false and the event is
+   * uploaded without a snapshot rather than not at all.
+   */
+  virtual bool encode_snapshot(const Frame& in, std::vector<uint8_t>& jpeg_out) = 0;
   virtual const std::vector<uint8_t>& codec_config() const = 0;
   virtual void request_keyframe() = 0;
   virtual void close() = 0;

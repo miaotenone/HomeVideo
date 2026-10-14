@@ -25,6 +25,8 @@ add_library(hv_core STATIC
   src/events.cpp
   src/health.cpp
   src/uploader.cpp
+  src/pipeline.cpp
+  src/supervisor.cpp
   src/platform/desktop_camera.cpp
   src/platform/desktop_encoder.cpp
   src/platform/desktop_detector.cpp

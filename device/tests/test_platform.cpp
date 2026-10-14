@@ -120,6 +120,31 @@ HV_TEST(encoder_emits_keyframes_on_the_gop_cadence) {
   HV_CHECK_EQ(keyframes, 2);
 }
 
+HV_TEST(encoder_snapshot_is_a_real_jpeg_and_needs_an_open_encoder) {
+  auto encoder = create_encoder();
+  EncoderConfig config;
+  config.fps = 15;
+  config.gop_ms = 2000;
+
+  // A closed encoder must decline rather than hand back a bogus still.
+  std::vector<uint8_t> jpeg;
+  HV_CHECK_FALSE(encoder->encode_snapshot(Frame{}, jpeg));
+
+  HV_CHECK(encoder->open(config).ok());
+  Frame frame;
+  frame.ts_ms = 0;
+  frame.width = 320;
+  frame.height = 180;
+  HV_CHECK_TRUE(encoder->encode_snapshot(frame, jpeg));
+  // The hub stores this blob verbatim and the phone renders it, so it has to be
+  // a decodable JPEG, not just a marker pair with nothing between them.
+  HV_CHECK(jpeg.size() > 128);
+  HV_CHECK_EQ(jpeg[0], uint8_t{0xff});
+  HV_CHECK_EQ(jpeg[1], uint8_t{0xd8});
+  HV_CHECK_EQ(jpeg[jpeg.size() - 2], uint8_t{0xff});
+  HV_CHECK_EQ(jpeg[jpeg.size() - 1], uint8_t{0xd9});
+}
+
 HV_TEST(encoder_request_keyframe_makes_the_next_frame_a_keyframe) {
   auto encoder = create_encoder();
   EncoderConfig config;

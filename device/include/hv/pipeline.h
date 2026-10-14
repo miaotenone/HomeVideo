@@ -66,8 +66,29 @@ class Pipeline {
 
   PipelineStats stats() const;
 
+  /**
+   * Encoder SPS/PPS, available after a successful start(). The EventManager
+   * needs it to prepend to keyframe-led segments (see platform.h).
+   */
+  std::vector<uint8_t> codec_config() const;
+
+  /**
+   * Encodes a still from the most recent frame, for the event snapshot. False
+   * when no frame has arrived yet or the backend has no JPEG path; the event is
+   * then uploaded without a thumbnail rather than not uploaded at all.
+   */
+  bool capture_snapshot(std::vector<uint8_t>& jpeg);
+
+  /**
+   * Person detection only runs while the device is armed away (design §4.3).
+   * Fire and smoke always run. Re-enabling costs nothing; the detector is only
+   * loaded at start().
+   */
+  void set_person_detection_enabled(bool enabled);
+
   /** Stage rebuild paths used by the Supervisor. */
   Result restart_encoder();
+  Result restart_detector(EventType label);
   void request_keyframe();
 
  private:

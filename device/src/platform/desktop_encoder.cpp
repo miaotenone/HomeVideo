@@ -2,6 +2,7 @@
 #include <cstdint>
 
 #include "platform/backends.h"
+#include "platform/synthetic_snapshot.h"
 
 namespace hv::internal {
 
@@ -55,6 +56,19 @@ class DesktopEncoder : public IEncoder {
   }
 
   const std::vector<uint8_t>& codec_config() const override { return codec_config_; }
+
+  bool encode_snapshot(const Frame& in, std::vector<uint8_t>& jpeg_out) override {
+    if (!opened_) {
+      last_error_ = "encoder is not open";
+      return false;
+    }
+    // A constant still: the synthetic camera's pixels carry no information a
+    // viewer would want, and the hub never decodes the blob, so there is
+    // nothing to gain from a real JPEG encoder here (see synthetic_snapshot.h).
+    (void)in;
+    jpeg_out = synthetic_snapshot_jpeg();
+    return true;
+  }
 
   void request_keyframe() override { force_keyframe_ = true; }
 
